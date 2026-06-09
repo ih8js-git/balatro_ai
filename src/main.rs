@@ -214,7 +214,9 @@ fn remaining_deck(hand: &[Card]) -> Vec<BalatroCard> {
     }
     for api_card in hand {
         if let Some(hc) = convert_card(api_card)
-            && let Some(pos) = deck.iter().position(|c| c.value == hc.value && c.suit == hc.suit)
+            && let Some(pos) = deck
+                .iter()
+                .position(|c| c.value == hc.value && c.suit == hc.suit)
         {
             deck.swap_remove(pos);
         }
@@ -242,84 +244,42 @@ fn find_best_balatro_hand(
     (best_score, best_rank)
 }
 
-fn greedy_discard(
-    cards: &[BalatroCard],
-    scores: &HashMap<String, HandScore>,
-) -> Vec<usize> {
-    let n = cards.len();
-    if n <= 5 {
-        return vec![];
-    }
-    let mut best_score = 0u64;
-    let mut best_indices: Vec<usize> = (0..5).collect();
-
-    for combo in (0..n).combinations(5) {
-        let combo_cards: Vec<BalatroCard> = combo.iter().map(|&i| cards[i]).collect();
-        if let Some((total, _)) = evaluate_combo(&combo_cards, scores)
-            && total > best_score
-        {
-            best_score = total;
-            best_indices = combo;
-        }
-    }
-
-    (0..n).filter(|i| !best_indices.contains(i)).collect()
-}
-
 fn rollout_once(
     hand: &[BalatroCard],
     deck: &[BalatroCard],
-    discards_left: u64,
     target: u64,
     scores: &HashMap<String, HandScore>,
-    first_discard: &[usize],
+    discard_set: &[usize],
     rng: &mut ThreadRng,
 ) -> Option<HandRank> {
     let mut current = hand.to_vec();
     let mut remains = deck.to_vec();
-    let mut remaining_discards = discards_left;
-    let mut first = true;
 
-    loop {
-        let (best_score, best_rank) = find_best_balatro_hand(&current, scores);
-        if best_score >= target {
-            return Some(best_rank);
+    let draw_count = discard_set.len();
+    if draw_count > remains.len() {
+        return None;
+    }
+
+    let drawn: Vec<BalatroCard> = remains.choose_multiple(rng, draw_count).cloned().collect();
+    for d in &drawn {
+        if let Some(pos) = remains.iter().position(|c| c.id == d.id) {
+            remains.swap_remove(pos);
         }
-        if remaining_discards == 0 || current.len() < 5 {
-            return None;
-        }
+    }
 
-        let discard_idx: Vec<usize> = if first {
-            first = false;
-            first_discard.to_vec()
-        } else {
-            let di = greedy_discard(&current, scores);
-            if di.is_empty() || di.len() > 5 {
-                return None;
-            }
-            di
-        };
+    let mut sorted = discard_set.to_vec();
+    sorted.sort_unstable_by(|a, b| b.cmp(a));
+    for &i in &sorted {
+        current.swap_remove(i);
+    }
 
-        let draw_count = discard_idx.len();
-        if draw_count > remains.len() {
-            return None;
-        }
+    current.extend(drawn);
 
-        let drawn: Vec<BalatroCard> = remains.choose_multiple(rng, draw_count).cloned().collect();
-        for d in &drawn {
-            if let Some(pos) = remains.iter().position(|c| c.id == d.id) {
-                remains.swap_remove(pos);
-            }
-        }
-
-        let mut sorted = discard_idx.clone();
-        sorted.sort_unstable_by(|a, b| b.cmp(a));
-        for &i in &sorted {
-            current.swap_remove(i);
-        }
-
-        current.extend(drawn);
-        remaining_discards -= 1;
+    let (best_score, best_rank) = find_best_balatro_hand(&current, scores);
+    if best_score >= target {
+        Some(best_rank)
+    } else {
+        None
     }
 }
 
@@ -392,7 +352,6 @@ async fn main() {
                             if let Some(rank) = rollout_once(
                                 &hand_cards,
                                 &deck,
-                                state.round.discards_left,
                                 target,
                                 &state.hands,
                                 &discard_set,
@@ -427,17 +386,17 @@ async fn main() {
                 if best_prob > 0.0 {
                     println!(
                         "{} < {} ({}), discarding {:?} ({:.1}% win)",
-                        best_score, target, blind, best_discard, best_prob * 100.0
+                        best_score,
+                        target,
+                        blind,
+                        best_discard,
+                        best_prob * 100.0
                     );
                     let mut sorted: Vec<_> = best_hand_probs.iter().collect();
                     sorted.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
                     for (rank, prob) in sorted {
                         if *prob > 0.001 {
-                            println!(
-                                "  {}: {:.1}%",
-                                hand_rank_to_api_key(*rank),
-                                prob * 100.0
-                            );
+                            println!("  {}: {:.1}%", hand_rank_to_api_key(*rank), prob * 100.0);
                         }
                     }
                     let discard_req = JsonRpcRequest {
@@ -464,17 +423,9 @@ async fn main() {
                 }
             } else {
                 println!(
-                    "{} < {} ({}), no discards left, playing anyway",
+                    "{} < {} ({}), no discards left, we lost",
                     best_score, target, blind
                 );
-                let play_req = JsonRpcRequest {
-                    jsonrpc: "2.0".to_string(),
-                    method: "play".to_string(),
-                    params: json!({ "cards": best_indices }),
-                    id: 2,
-                };
-                let _ = client.post(API_URL).json(&play_req).send().await;
-                sleep(Duration::from_secs(2)).await;
             }
         }
         sleep(Duration::from_millis(500)).await;
