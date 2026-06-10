@@ -19,6 +19,8 @@ const API_URL: &str = "http://127.0.0.1:12346";
 
 #[tokio::main]
 async fn main() {
+    let verbose = std::env::args().any(|a| a == "-v" || a == "--verbose");
+
     let client = reqwest::Client::new();
 
     let req = JsonRpcRequest {
@@ -57,7 +59,6 @@ async fn main() {
     }
     println!();
 
-    // ── Round Info ──────────────────────────────────────────────────────────
     println!("─── Round ───");
     if let Some(v) = state.round.hands_left {
         println!("  Hands left:   {}", v);
@@ -86,10 +87,16 @@ async fn main() {
         println!("    type:   {}", blind.blind_type);
         println!("    status: {}", blind.status);
         println!("    name:   {}", blind.name);
-        println!("    effect: {}", blind.effect);
+        if !blind.effect.is_empty() && verbose {
+            println!("    effect: {}", blind.effect);
+        }
         println!("    score:  {}", blind.score);
         if !blind.tag_name.is_empty() {
-            println!("    tag:    {} — {}", blind.tag_name, blind.tag_effect);
+            if verbose {
+                println!("    tag:    {} — {}", blind.tag_name, blind.tag_effect);
+            } else {
+                println!("    tag:    {}", blind.tag_name);
+            }
         }
     }
     println!();
@@ -100,10 +107,14 @@ async fn main() {
         let mut sorted: Vec<_> = state.hands.iter().collect();
         sorted.sort_by(|a, b| a.1.order.cmp(&b.1.order));
         for (name, hand) in &sorted {
-            println!(
-                "  {:20} Lv{:<2}  {} chips × {} mult  ({}× this round)",
-                name, hand.level, hand.chips, hand.mult, hand.played_this_round
-            );
+            if verbose {
+                println!(
+                    "  {:20} Lv{:<2}  {} chips × {} mult  ({}× this round)",
+                    name, hand.level, hand.chips, hand.mult, hand.played_this_round
+                );
+            } else {
+                println!("  {:20} Lv{:<2}", name, hand.level);
+            }
         }
         println!();
     }
@@ -112,7 +123,7 @@ async fn main() {
     if let Some(ref area) = state.hand {
         println!("─── Hand ({}/{}) ───", area.cards.len(), area.limit);
         for (i, card) in area.cards.iter().enumerate() {
-            print_card(i, card);
+            print_card(i, card, verbose);
         }
         println!();
     }
@@ -122,7 +133,33 @@ async fn main() {
         if !area.cards.is_empty() {
             println!("─── Jokers ({}/{}) ───", area.cards.len(), area.limit);
             for (i, card) in area.cards.iter().enumerate() {
-                print_card(i, card);
+                if verbose {
+                    print_card(i, card, true);
+                } else {
+                    println!("  [{}] {}", i, card.label);
+                    println!("       key:   {}", card.key);
+                    if let Some(ref e) = card.modifier.edition {
+                        println!("       ed:    {}", e);
+                    }
+                    if let Some(ref s) = card.modifier.seal {
+                        println!("       seal:  {}", s);
+                    }
+                    if card.modifier.eternal.unwrap_or(false) {
+                        println!("       eternal");
+                    }
+                    if let Some(p) = card.modifier.perishable {
+                        println!("       perishable: {} rounds", p);
+                    }
+                    if card.modifier.rental.unwrap_or(false) {
+                        println!("       rental");
+                    }
+                    if card.state.debuff.unwrap_or(false) {
+                        println!("       debuffed");
+                    }
+                    if card.state.highlight.unwrap_or(false) {
+                        println!("       highlighted");
+                    }
+                }
             }
             println!();
         }
@@ -133,7 +170,7 @@ async fn main() {
         if !area.cards.is_empty() {
             println!("─── Consumables ({}/{}) ───", area.cards.len(), area.limit);
             for (i, card) in area.cards.iter().enumerate() {
-                print_card(i, card);
+                print_card(i, card, verbose);
             }
             println!();
         }
@@ -141,9 +178,13 @@ async fn main() {
 
     // ── Remaining deck ──────────────────────────────────────────────────────
     if let Some(ref area) = state.cards {
-        println!("─── Deck ({}/{}) ───", area.cards.len(), area.limit);
-        for (i, card) in area.cards.iter().enumerate() {
-            print_card(i, card);
+        if verbose {
+            println!("─── Deck ({}/{}) ───", area.cards.len(), area.limit);
+            for (i, card) in area.cards.iter().enumerate() {
+                print_card(i, card, true);
+            }
+        } else {
+            println!("─── Deck ({}/{}) ───", area.cards.len(), area.limit);
         }
         println!();
     }
@@ -153,7 +194,11 @@ async fn main() {
         if !area.cards.is_empty() {
             println!("─── Shop ({}/{}) ───", area.cards.len(), area.limit);
             for (i, card) in area.cards.iter().enumerate() {
-                print_card(i, card);
+                if verbose {
+                    print_card(i, card, true);
+                } else {
+                    println!("  [{}] {}", i, card.key);
+                }
             }
             println!();
         }
@@ -164,16 +209,22 @@ async fn main() {
         if !area.cards.is_empty() {
             println!("─── Booster Packs ({}) ───", area.cards.len());
             for (i, card) in area.cards.iter().enumerate() {
-                print_card(i, card);
+                if verbose {
+                    print_card(i, card, true);
+                } else {
+                    println!("  [{}] {}", i, card.key);
+                }
             }
             println!();
         }
     }
 }
 
-fn print_card(i: usize, card: &balatro_ai::ApiCard) {
+fn print_card(i: usize, card: &balatro_ai::ApiCard, verbose: bool) {
     println!("  [{}] {}", i, card.label);
-    println!("       key:   {}", card.key);
+    if verbose {
+        println!("       key:   {}", card.key);
+    }
     println!("       set:   {}", card.set);
     println!("       id:    {}", card.id);
     if let Some(ref s) = card.value.suit {
@@ -210,7 +261,7 @@ fn print_card(i: usize, card: &balatro_ai::ApiCard) {
     if card.state.highlight.unwrap_or(false) {
         println!("       highlighted");
     }
-    if card.cost.sell > 0 || card.cost.buy > 0 {
+    if verbose && (card.cost.sell > 0 || card.cost.buy > 0) {
         println!("       sell: ${}  buy: ${}", card.cost.sell, card.cost.buy);
     }
 }
