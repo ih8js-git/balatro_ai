@@ -82,7 +82,11 @@ async fn main() {
 
     // ── Blinds ──────────────────────────────────────────────────────────────
     println!("─── Blinds ───");
-    for (name, blind) in [("small", &state.blinds.small), ("big", &state.blinds.big), ("boss", &state.blinds.boss)] {
+    for (name, blind) in [
+        ("small", &state.blinds.small),
+        ("big", &state.blinds.big),
+        ("boss", &state.blinds.boss),
+    ] {
         println!("  {}:", name);
         println!("    type:   {}", blind.blind_type);
         println!("    status: {}", blind.status);

@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use balatro_ai::{
-    convert_card, current_blind_name, current_blind_score, find_best_hand, hand_rank_to_api_key,
-    remaining_deck, rollout_once, GameState, HandRank,
+    GameState, HandRank, convert_card, current_blind_name, current_blind_score, find_best_hand,
+    hand_rank_to_api_key, remaining_deck, rollout_once,
 };
 use balatro_rs::card::Card as BalatroCard;
 use itertools::Itertools;
-use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use rayon::prelude::*;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

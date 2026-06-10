@@ -304,7 +304,11 @@ pub fn convert_card(api_card: &ApiCard) -> Option<BalatroCard> {
 
 /// Convert only the hand area cards, checking both the area and player state guard.
 pub fn hand_cards(state: &GameState) -> &[ApiCard] {
-    state.hand.as_ref().map(|h| h.cards.as_slice()).unwrap_or(&[])
+    state
+        .hand
+        .as_ref()
+        .map(|h| h.cards.as_slice())
+        .unwrap_or(&[])
 }
 
 // ── Scoring Functions ───────────────────────────────────────────────────────
