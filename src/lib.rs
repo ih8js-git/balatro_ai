@@ -8,55 +8,229 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 
-#[derive(Deserialize, Debug)]
+fn deser_mod<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CardModifier, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum H {
+        Obj(CardModifier),
+        #[allow(dead_code)]
+        Arr(Vec<()>),
+    }
+    match H::deserialize(d)? {
+        H::Obj(v) => Ok(v),
+        H::Arr(_) => Ok(CardModifier::default()),
+    }
+}
+
+fn deser_map_or_empty<'de, D>(d: D) -> Result<HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum H {
+        Map(HashMap<String, String>),
+        #[allow(dead_code)]
+        Arr(Vec<()>),
+    }
+    match H::deserialize(d)? {
+        H::Map(v) => Ok(v),
+        H::Arr(_) => Ok(HashMap::new()),
+    }
+}
+
+fn deser_state<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CardState, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum H {
+        Obj(CardState),
+        #[allow(dead_code)]
+        Arr(Vec<()>),
+    }
+    match H::deserialize(d)? {
+        H::Obj(v) => Ok(v),
+        H::Arr(_) => Ok(CardState::default()),
+    }
+}
+
+// ── API Card Types ──────────────────────────────────────────────────────────
+
+#[derive(Default, Deserialize, Debug)]
+pub struct CardModifier {
+    #[serde(default)]
+    pub seal: Option<String>,
+    #[serde(default)]
+    pub edition: Option<String>,
+    #[serde(default)]
+    pub enhancement: Option<String>,
+    #[serde(default)]
+    pub eternal: Option<bool>,
+    #[serde(default)]
+    pub perishable: Option<u64>,
+    #[serde(default)]
+    pub rental: Option<bool>,
+}
+
+#[derive(Default, Deserialize, Debug)]
+pub struct CardState {
+    #[serde(default)]
+    pub debuff: Option<bool>,
+    #[serde(default)]
+    pub hidden: Option<bool>,
+    #[serde(default)]
+    pub highlight: Option<bool>,
+}
+
+#[derive(Default, Deserialize, Debug)]
+pub struct CardCost {
+    pub sell: u64,
+    pub buy: u64,
+}
+
+#[derive(Default, Deserialize, Debug)]
 pub struct CardValue {
-    pub suit: String,
-    pub rank: String,
+    #[serde(default)]
+    pub suit: Option<String>,
+    #[serde(default)]
+    pub rank: Option<String>,
+    #[serde(default)]
+    pub effect: String,
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Card {
+pub struct ApiCard {
+    pub id: u64,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub set: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
     pub value: CardValue,
+    #[serde(default, deserialize_with = "deser_mod")]
+    pub modifier: CardModifier,
+    #[serde(default, deserialize_with = "deser_state")]
+    pub state: CardState,
+    #[serde(default)]
+    pub cost: CardCost,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct HandInfo {
-    pub cards: Vec<Card>,
-}
+// ── Area Types ──────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Debug)]
-pub struct HandScore {
+pub struct Area {
+    pub count: u64,
+    pub limit: u64,
+    #[serde(default)]
+    pub highlighted_limit: Option<u64>,
+    #[serde(default)]
+    pub cards: Vec<ApiCard>,
+}
+
+// ── Hand Data ───────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Debug)]
+pub struct HandData {
+    pub order: u64,
+    pub level: u64,
     pub chips: u64,
     pub mult: u64,
+    pub played: u64,
+    pub played_this_round: u64,
 }
 
-#[derive(Deserialize, Debug)]
+// ── Round Info ──────────────────────────────────────────────────────────────
+
+#[derive(Default, Deserialize, Debug)]
 pub struct RoundInfo {
-    pub discards_left: u64,
+    #[serde(default)]
+    pub hands_left: Option<u64>,
+    #[serde(default)]
+    pub hands_played: Option<u64>,
+    #[serde(default)]
+    pub discards_left: Option<u64>,
+    #[serde(default)]
+    pub discards_used: Option<u64>,
+    #[serde(default)]
+    pub reroll_cost: Option<u64>,
+    #[serde(default)]
+    pub chips: Option<u64>,
 }
 
-#[derive(Deserialize, Debug)]
+// ── Blind Info ──────────────────────────────────────────────────────────────
+
+#[derive(Default, Deserialize, Debug)]
 pub struct BlindInfo {
+    #[serde(rename = "type")]
+    #[serde(default)]
+    pub blind_type: String,
+    #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub effect: String,
     pub score: u64,
+    #[serde(default)]
+    pub tag_name: String,
+    #[serde(default)]
+    pub tag_effect: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Default, Deserialize, Debug)]
 pub struct Blinds {
     pub small: BlindInfo,
     pub big: BlindInfo,
     pub boss: BlindInfo,
 }
 
+// ── Game State ──────────────────────────────────────────────────────────────
+
 #[derive(Deserialize, Debug)]
 pub struct GameState {
     pub state: String,
-    pub stake: String,
-    pub hand: HandInfo,
-    pub hands: HashMap<String, HandScore>,
+    #[serde(default)]
+    pub round_num: u64,
+    #[serde(default)]
+    pub ante_num: u64,
+    #[serde(default)]
+    pub money: u64,
+    #[serde(default)]
+    pub won: Option<bool>,
+    #[serde(default)]
+    pub deck: Option<String>,
+    #[serde(default)]
+    pub stake: Option<String>,
+    #[serde(default)]
+    pub seed: Option<String>,
+    #[serde(default, deserialize_with = "deser_map_or_empty")]
+    pub used_vouchers: HashMap<String, String>,
+    #[serde(default)]
+    pub hands: HashMap<String, HandData>,
+    #[serde(default)]
     pub round: RoundInfo,
+    #[serde(default)]
     pub blinds: Blinds,
+    #[serde(default)]
+    pub jokers: Option<Area>,
+    #[serde(default)]
+    pub consumables: Option<Area>,
+    #[serde(default)]
+    pub hand: Option<Area>,
+    #[serde(default)]
+    pub cards: Option<Area>,
+    #[serde(default)]
+    pub shop: Option<Area>,
+    #[serde(default)]
+    pub vouchers: Option<Area>,
+    #[serde(default)]
+    pub packs: Option<Area>,
+    #[serde(default)]
+    pub pack: Option<Area>,
 }
+
+// ── Conversion Functions ────────────────────────────────────────────────────
 
 pub fn rank_to_value(r: &str) -> Option<Value> {
     match r {
@@ -122,15 +296,22 @@ pub fn card_chips(card: &BalatroCard) -> u64 {
     }
 }
 
-pub fn convert_card(api_card: &Card) -> Option<BalatroCard> {
-    let value = rank_to_value(&api_card.value.rank)?;
-    let suit = suit_to_suit(&api_card.value.suit)?;
+pub fn convert_card(api_card: &ApiCard) -> Option<BalatroCard> {
+    let value = rank_to_value(api_card.value.rank.as_ref()?)?;
+    let suit = suit_to_suit(api_card.value.suit.as_ref()?)?;
     Some(BalatroCard::new(value, suit))
 }
 
+/// Convert only the hand area cards, checking both the area and player state guard.
+pub fn hand_cards(state: &GameState) -> &[ApiCard] {
+    state.hand.as_ref().map(|h| h.cards.as_slice()).unwrap_or(&[])
+}
+
+// ── Scoring Functions ───────────────────────────────────────────────────────
+
 pub fn evaluate_combo(
     cards: &[BalatroCard],
-    scores: &HashMap<String, HandScore>,
+    scores: &HashMap<String, HandData>,
 ) -> Option<(u64, HandRank)> {
     let select = SelectHand::new(cards.to_vec());
     let made = select.best_hand().ok()?;
@@ -141,13 +322,13 @@ pub fn evaluate_combo(
     Some((total, made.rank))
 }
 
-pub fn find_best_hand(hand: &[Card], scores: &HashMap<String, HandScore>) -> (Vec<usize>, u64) {
+pub fn find_best_hand(hand: &[ApiCard], scores: &HashMap<String, HandData>) -> (Vec<usize>, u64) {
     let indices: Vec<usize> = (0..hand.len()).collect();
     let mut best_score = 0u64;
     let mut best_indices: Vec<usize> = (0..std::cmp::min(5, hand.len())).collect();
 
     for combo in indices.into_iter().combinations(5) {
-        let api_cards: Vec<&Card> = combo.iter().map(|&i| &hand[i]).collect();
+        let api_cards: Vec<&ApiCard> = combo.iter().map(|&i| &hand[i]).collect();
         let balatro_cards: Vec<BalatroCard> =
             api_cards.iter().filter_map(|c| convert_card(c)).collect();
         if balatro_cards.len() < 5 {
@@ -184,7 +365,7 @@ pub fn current_blind_name(blinds: &Blinds) -> &str {
     }
 }
 
-pub fn remaining_deck(hand: &[Card]) -> Vec<BalatroCard> {
+pub fn remaining_deck(hand: &[ApiCard]) -> Vec<BalatroCard> {
     let mut deck: Vec<BalatroCard> = Vec::with_capacity(52);
     for suit in Suit::suits() {
         for value in Value::values() {
@@ -205,7 +386,7 @@ pub fn remaining_deck(hand: &[Card]) -> Vec<BalatroCard> {
 
 pub fn find_best_balatro_hand(
     cards: &[BalatroCard],
-    scores: &HashMap<String, HandScore>,
+    scores: &HashMap<String, HandData>,
 ) -> (u64, HandRank) {
     let mut best_score = 0u64;
     let mut best_rank = HandRank::HighCard;
@@ -227,12 +408,12 @@ pub fn rollout_once(
     hand: &[BalatroCard],
     deck: &[BalatroCard],
     target: u64,
-    scores: &HashMap<String, HandScore>,
+    scores: &HashMap<String, HandData>,
     discard_set: &[usize],
     rng: &mut SmallRng,
 ) -> Option<HandRank> {
     let mut current = hand.to_vec();
-    let mut remains = deck.to_vec();
+    let remains = deck.to_vec();
 
     let draw_count = discard_set.len();
     if draw_count > remains.len() {
@@ -240,11 +421,6 @@ pub fn rollout_once(
     }
 
     let drawn: Vec<BalatroCard> = remains.choose_multiple(rng, draw_count).cloned().collect();
-    for d in &drawn {
-        if let Some(pos) = remains.iter().position(|c| c.id == d.id) {
-            remains.swap_remove(pos);
-        }
-    }
 
     let mut sorted = discard_set.to_vec();
     sorted.sort_unstable_by(|a, b| b.cmp(a));

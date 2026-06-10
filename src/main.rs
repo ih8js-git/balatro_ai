@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use balatro_ai::{
-    GameState, HandRank, convert_card, current_blind_name, current_blind_score, find_best_hand,
-    hand_rank_to_api_key, remaining_deck, rollout_once,
+    convert_card, current_blind_name, current_blind_score, find_best_hand, hand_rank_to_api_key,
+    remaining_deck, rollout_once, GameState, HandRank,
 };
 use balatro_rs::card::Card as BalatroCard;
 use itertools::Itertools;
-use rand::SeedableRng;
 use rand::rngs::SmallRng;
+use rand::SeedableRng;
 use rayon::prelude::*;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -47,17 +47,18 @@ async fn main() {
             && let Ok(rpc_res) = res.json::<RpcResponse>().await
             && let Some(state) = rpc_res.result
             && state.state == "SELECTING_HAND"
-            && !state.hand.cards.is_empty()
+            && let Some(ref hand_area) = state.hand
+            && !hand_area.cards.is_empty()
         {
-            if state.stake != "WHITE" {
-                println!("Only white stake supported, got {}", state.stake);
+            if state.stake.as_deref() != Some("WHITE") {
+                println!("Only white stake supported, got {:?}", state.stake);
                 sleep(Duration::from_millis(500)).await;
                 continue;
             }
 
             let target = current_blind_score(&state.blinds);
             let blind = current_blind_name(&state.blinds);
-            let (best_indices, best_score) = find_best_hand(&state.hand.cards, &state.hands);
+            let (best_indices, best_score) = find_best_hand(&hand_area.cards, &state.hands);
 
             if best_score >= target {
                 println!("Playing hand: {} >= {} ({})", best_score, target, blind);
@@ -69,16 +70,19 @@ async fn main() {
                 };
                 let _ = client.post(API_URL).json(&play_req).send().await;
                 sleep(Duration::from_secs(2)).await;
-            } else if state.round.discards_left > 0 {
-                let deck = remaining_deck(&state.hand.cards);
-                let hand_cards: Vec<BalatroCard> =
-                    state.hand.cards.iter().filter_map(convert_card).collect();
-                let hand_size = state.hand.cards.len();
+            } else if state.round.discards_left.unwrap_or(0) > 0 {
+                let deck = remaining_deck(&hand_area.cards);
+                let balatro_cards: Vec<BalatroCard> =
+                    hand_area.cards.iter().filter_map(convert_card).collect();
+                let hand_size = hand_area.cards.len();
                 let max_discard = std::cmp::min(5, hand_size);
 
                 println!(
                     "{} < {} ({}), {} discard(s) available",
-                    best_score, target, blind, state.round.discards_left
+                    best_score,
+                    target,
+                    blind,
+                    state.round.discards_left.unwrap_or(0)
                 );
 
                 let mut best_discard: Vec<usize> = Vec::new();
@@ -98,7 +102,7 @@ async fn main() {
                             let mut rank_wins: HashMap<HandRank, usize> = HashMap::new();
                             for _ in 0..100 {
                                 if let Some(rank) = rollout_once(
-                                    &hand_cards,
+                                    &balatro_cards,
                                     &deck,
                                     target,
                                     &state.hands,
@@ -165,7 +169,7 @@ async fn main() {
                         id: 2,
                     };
                     let _ = client.post(API_URL).json(&play_req).send().await;
-                    sleep(Duration::from_secs(1)).await;
+                    sleep(Duration::from_secs(2)).await;
                 }
             } else {
                 println!(
